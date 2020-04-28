@@ -5,17 +5,33 @@ set -e
 PR_NUMBER=$(jq -r ".issue.number" "$GITHUB_EVENT_PATH")
 echo "Collecting information about PR #$PR_NUMBER of $GITHUB_REPOSITORY..."
 
-if [[ -z "$GITHUB_TOKEN" ]]; then
-	echo "Set the GITHUB_TOKEN env variable."
+
+if [[ -n "${REBASE_TOKEN}" ]]; then
+	echo "Rebase token set to ${REBASE_TOKEN}"
+fi
+
+token=${REBASE_TOKEN:-$GITHUB_TOKEN}
+if [[ -z "$token" ]]; then
+	echo "Set the GITHUB_TOKEN or REBASE_TOKEN env variable."
 	exit 1
+fi
+
+if [[ "${REBASE_TOKEN}" == "$token" ]]; then
+	echo "using rebase token"
 fi
 
 URI=https://api.github.com
 API_HEADER="Accept: application/vnd.github.v3+json"
-AUTH_HEADER="Authorization: token $GITHUB_TOKEN"
+AUTH_HEADER="Authorization: token $token"
 
 pr_resp=$(curl -X GET -s -H "${AUTH_HEADER}" -H "${API_HEADER}" \
           "${URI}/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")
+
+error=$(echo "$pr_resp" | jq -r .message)
+if [[ "$error" != "null" ]]; then
+	echo "Error getting PR details: $error"
+	exit 1
+fi
 
 BASE_REPO=$(echo "$pr_resp" | jq -r .base.repo.full_name)
 BASE_BRANCH=$(echo "$pr_resp" | jq -r .base.ref)
@@ -53,7 +69,9 @@ HEAD_BRANCH=$(echo "$pr_resp" | jq -r .head.ref)
 echo "Base branch for PR #$PR_NUMBER is $BASE_BRANCH"
 
 USER_TOKEN=${USER_LOGIN}_TOKEN
-COMMITTER_TOKEN=${!USER_TOKEN:-$GITHUB_TOKEN}
+COMMITTER_TOKEN=${!USER_TOKEN:-$token}
+
+echo "Using token ggg${COMMITTER_TOKEN}ggg"
 
 git remote set-url origin https://x-access-token:$COMMITTER_TOKEN@github.com/$GITHUB_REPOSITORY.git
 git config --global user.email "$USER_EMAIL"
